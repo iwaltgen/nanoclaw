@@ -9,6 +9,7 @@ import { readEnvFile } from './env.js';
 const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
+  'TRIGGER_ALIASES',
 ]);
 
 export const ASSISTANT_NAME =
@@ -58,8 +59,14 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const triggerAliasesRaw =
+  process.env.TRIGGER_ALIASES || envConfig.TRIGGER_ALIASES || '';
+const triggerNames = [
+  ASSISTANT_NAME,
+  ...triggerAliasesRaw.split(',').map((s) => s.trim()).filter(Boolean),
+];
 export const TRIGGER_PATTERN = new RegExp(
-  `^@${escapeRegex(ASSISTANT_NAME)}\\b`,
+  `^@(?:${triggerNames.map(escapeRegex).join('|')})\\b`,
   'i',
 );
 
