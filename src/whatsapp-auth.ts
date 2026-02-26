@@ -15,6 +15,7 @@ import readline from 'readline';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
@@ -53,6 +54,8 @@ async function connectSocket(phoneNumber?: string, isReconnect = false): Promise
     process.exit(0);
   }
 
+  const { version } = await fetchLatestWaWebVersion();
+
   const sock = makeWASocket({
     auth: {
       creds: state.creds,
@@ -60,6 +63,7 @@ async function connectSocket(phoneNumber?: string, isReconnect = false): Promise
     },
     printQRInTerminal: false,
     logger,
+    version,
     browser: Browsers.macOS('Chrome'),
   });
 
