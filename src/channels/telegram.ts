@@ -1,4 +1,5 @@
 import fs from 'fs';
+import https from 'https';
 import path from 'path';
 
 import { Bot } from 'grammy';
@@ -32,7 +33,14 @@ export class TelegramChannel implements Channel {
   }
 
   async connect(): Promise<void> {
-    this.bot = new Bot(this.botToken);
+    // Force IPv4: node-fetch v2 + Node.js 22 autoSelectFamily causes ETIMEDOUT
+    // when IPv6 route to api.telegram.org is unreachable (Tailscale/container bridge)
+    const baseFetchConfig = {
+      agent: new https.Agent({ family: 4, keepAlive: true }),
+    };
+    this.bot = new Bot(this.botToken, {
+      client: { baseFetchConfig },
+    });
 
     const isAuthorized = (ctx: { from?: { id: number }; chat: { id: number } }): boolean => {
       const isAdmin = !!ctx.from && TELEGRAM_ADMIN_IDS.includes(ctx.from.id);
