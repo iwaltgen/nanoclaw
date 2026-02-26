@@ -19,6 +19,23 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
+// Mock group-folder
+vi.mock('../group-folder.js', () => ({
+  resolveGroupFolderPath: vi.fn((folder: string) => `/tmp/groups/${folder}`),
+}));
+
+// Mock fs
+vi.mock('fs', () => ({
+  default: {
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
+  },
+}));
+
+// Mock global fetch
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
 // --- Grammy mock ---
 
 type Handler = (...args: any[]) => any;
@@ -35,6 +52,7 @@ vi.mock('grammy', () => ({
     api = {
       sendMessage: vi.fn().mockResolvedValue(undefined),
       sendChatAction: vi.fn().mockResolvedValue(undefined),
+      getFile: vi.fn().mockResolvedValue({ file_path: 'photos/file_1.jpg' }),
     };
 
     constructor(token: string) {
@@ -536,31 +554,79 @@ describe('TelegramChannel', () => {
   // --- Non-text messages ---
 
   describe('non-text messages', () => {
-    it('stores photo with placeholder', async () => {
+    it('downloads photo and stores path', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      });
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createMediaCtx({});
+      const ctx = createMediaCtx({
+        extra: {
+          photo: [
+            { file_id: 'small', file_unique_id: 's1', width: 90, height: 90 },
+            { file_id: 'large', file_unique_id: 'l1', width: 800, height: 600 },
+          ],
+        },
+      });
+      await triggerMediaMessage('message:photo', ctx);
+
+      expect(currentBot().api.getFile).toHaveBeenCalledWith('large');
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:100200300',
+        expect.objectContaining({
+          content: '[Photo: /workspace/group/attachments/photo_1.jpg]',
+        }),
+      );
+    });
+
+    it('downloads photo with caption', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      });
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        caption: 'Look at this',
+        extra: {
+          photo: [
+            { file_id: 'f1', file_unique_id: 'u1', width: 800, height: 600 },
+          ],
+        },
+      });
+      await triggerMediaMessage('message:photo', ctx);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:100200300',
+        expect.objectContaining({
+          content: '[Photo: /workspace/group/attachments/photo_1.jpg] Look at this',
+        }),
+      );
+    });
+
+    it('falls back to placeholder when photo download fails', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('network error'));
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        extra: {
+          photo: [
+            { file_id: 'f1', file_unique_id: 'u1', width: 800, height: 600 },
+          ],
+        },
+      });
       await triggerMediaMessage('message:photo', ctx);
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({ content: '[Photo]' }),
-      );
-    });
-
-    it('stores photo with caption', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      const ctx = createMediaCtx({ caption: 'Look at this' });
-      await triggerMediaMessage('message:photo', ctx);
-
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.objectContaining({ content: '[Photo] Look at this' }),
       );
     });
 
@@ -685,7 +751,14 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createMediaCtx({ chatId: 999999 });
+      const ctx = createMediaCtx({
+        chatId: 999999,
+        extra: {
+          photo: [
+            { file_id: 'f1', file_unique_id: 'u1', width: 800, height: 600 },
+          ],
+        },
+      });
       await triggerMediaMessage('message:photo', ctx);
 
       expect(opts.onMessage).not.toHaveBeenCalled();

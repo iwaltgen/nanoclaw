@@ -1,6 +1,10 @@
+import fs from 'fs';
+import path from 'path';
+
 import { Bot } from 'grammy';
 
 import { ASSISTANT_NAME, TELEGRAM_ADMIN_IDS, TRIGGER_PATTERN } from '../config.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
 import {
   Channel,
@@ -158,7 +162,43 @@ export class TelegramChannel implements Channel {
       });
     };
 
-    this.bot.on('message:photo', (ctx) => storeNonText(ctx, '[Photo]'));
+    this.bot.on('message:photo', async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      // Pick the largest resolution photo
+      const photos = ctx.message.photo;
+      const largest = photos[photos.length - 1];
+      let placeholder = '[Photo]';
+
+      try {
+        const file = await this.bot!.api.getFile(largest.file_id);
+        if (file.file_path) {
+          const ext = path.extname(file.file_path) || '.jpg';
+          const filename = `photo_${ctx.message.message_id}${ext}`;
+          const attachDir = path.join(
+            resolveGroupFolderPath(group.folder),
+            'attachments',
+          );
+          fs.mkdirSync(attachDir, { recursive: true });
+
+          const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const buffer = Buffer.from(await res.arrayBuffer());
+            fs.writeFileSync(path.join(attachDir, filename), buffer);
+            // Container sees group folder at /workspace/group/
+            placeholder = `[Photo: /workspace/group/attachments/${filename}]`;
+            logger.debug({ filename, size: buffer.length }, 'Photo downloaded');
+          }
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to download Telegram photo, using placeholder');
+      }
+
+      storeNonText(ctx, placeholder);
+    });
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
     this.bot.on('message:voice', (ctx) =>
       storeNonText(ctx, '[Voice message]'),
