@@ -55,18 +55,21 @@ describe('ensureContainerRuntimeRunning', () => {
     ensureContainerRuntimeRunning();
 
     expect(mockExecSync).toHaveBeenCalledTimes(1);
-    expect(mockExecSync).toHaveBeenCalledWith(`${CONTAINER_RUNTIME_BIN} info`, {
-      stdio: 'pipe',
-      timeout: 10000,
-    });
+    expect(mockExecSync).toHaveBeenCalledWith(
+      `${CONTAINER_RUNTIME_BIN} system status`,
+      {
+        stdio: 'pipe',
+        timeout: 10000,
+      },
+    );
     expect(logger.debug).toHaveBeenCalledWith(
       'Container runtime already running',
     );
   });
 
-  it('throws when docker info fails', () => {
+  it('throws when container system status fails', () => {
     mockExecSync.mockImplementationOnce(() => {
-      throw new Error('Cannot connect to the Docker daemon');
+      throw new Error('Container runtime not running');
     });
 
     expect(() => ensureContainerRuntimeRunning()).toThrow(
@@ -79,17 +82,19 @@ describe('ensureContainerRuntimeRunning', () => {
 // --- cleanupOrphans ---
 
 describe('cleanupOrphans', () => {
+  const makeContainerList = (...ids: string[]) =>
+    JSON.stringify(ids.map((id) => ({ configuration: { id } })));
+
   it('stops orphaned nanoclaw containers', () => {
-    // docker ps returns container names, one per line
     mockExecSync.mockReturnValueOnce(
-      'nanoclaw-group1-111\nnanoclaw-group2-222\n',
+      makeContainerList('nanoclaw-group1-111', 'nanoclaw-group2-222'),
     );
     // stop calls succeed
     mockExecSync.mockReturnValue('');
 
     cleanupOrphans();
 
-    // ps + 2 stop calls
+    // list + 2 stop calls
     expect(mockExecSync).toHaveBeenCalledTimes(3);
     expect(mockExecSync).toHaveBeenNthCalledWith(
       2,
@@ -107,8 +112,24 @@ describe('cleanupOrphans', () => {
     );
   });
 
+  it('skips non-nanoclaw containers', () => {
+    mockExecSync.mockReturnValueOnce(
+      makeContainerList('buildkit', 'nanoclaw-main-999', 'other-app'),
+    );
+    mockExecSync.mockReturnValue('');
+
+    cleanupOrphans();
+
+    // list + 1 stop call (only nanoclaw-main-999)
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
+    expect(logger.info).toHaveBeenCalledWith(
+      { count: 1, names: ['nanoclaw-main-999'] },
+      'Stopped orphaned containers',
+    );
+  });
+
   it('does nothing when no orphans exist', () => {
-    mockExecSync.mockReturnValueOnce('');
+    mockExecSync.mockReturnValueOnce('[]');
 
     cleanupOrphans();
 
@@ -116,9 +137,9 @@ describe('cleanupOrphans', () => {
     expect(logger.info).not.toHaveBeenCalled();
   });
 
-  it('warns and continues when ps fails', () => {
+  it('warns and continues when list fails', () => {
     mockExecSync.mockImplementationOnce(() => {
-      throw new Error('docker not available');
+      throw new Error('container runtime not available');
     });
 
     cleanupOrphans(); // should not throw
@@ -130,7 +151,9 @@ describe('cleanupOrphans', () => {
   });
 
   it('continues stopping remaining containers when one stop fails', () => {
-    mockExecSync.mockReturnValueOnce('nanoclaw-a-1\nnanoclaw-b-2\n');
+    mockExecSync.mockReturnValueOnce(
+      makeContainerList('nanoclaw-a-1', 'nanoclaw-b-2'),
+    );
     // First stop fails
     mockExecSync.mockImplementationOnce(() => {
       throw new Error('already stopped');
