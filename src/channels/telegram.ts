@@ -1,6 +1,6 @@
 import { Bot } from 'grammy';
 
-import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
+import { ASSISTANT_NAME, TELEGRAM_ADMIN_IDS, TRIGGER_PATTERN } from '../config.js';
 import { logger } from '../logger.js';
 import {
   Channel,
@@ -30,8 +30,16 @@ export class TelegramChannel implements Channel {
   async connect(): Promise<void> {
     this.bot = new Bot(this.botToken);
 
+    const isAuthorized = (ctx: { from?: { id: number }; chat: { id: number } }): boolean => {
+      const isAdmin = !!ctx.from && TELEGRAM_ADMIN_IDS.includes(ctx.from.id);
+      const isRegistered = !!this.opts.registeredGroups()[`tg:${ctx.chat.id}`];
+      return isAdmin || isRegistered;
+    };
+
     // Command to get chat ID (useful for registration)
     this.bot.command('chatid', (ctx) => {
+      if (!isAuthorized(ctx)) return;
+
       const chatId = ctx.chat.id;
       const chatType = ctx.chat.type;
       const chatName =
@@ -47,6 +55,7 @@ export class TelegramChannel implements Channel {
 
     // Command to check bot status
     this.bot.command('ping', (ctx) => {
+      if (!isAuthorized(ctx)) return;
       ctx.reply(`${ASSISTANT_NAME} is online.`);
     });
 

@@ -12,6 +12,7 @@ const envConfig = readEnvFile([
   'TRIGGER_ALIASES',
   'TELEGRAM_BOT_TOKEN',
   'TELEGRAM_ONLY',
+  'TELEGRAM_ADMIN_IDS',
 ]);
 
 export const ASSISTANT_NAME =
@@ -82,3 +83,9 @@ export const TELEGRAM_BOT_TOKEN =
   process.env.TELEGRAM_BOT_TOKEN || envConfig.TELEGRAM_BOT_TOKEN || '';
 export const TELEGRAM_ONLY =
   (process.env.TELEGRAM_ONLY || envConfig.TELEGRAM_ONLY) === 'true';
+const adminIdsRaw =
+  process.env.TELEGRAM_ADMIN_IDS || envConfig.TELEGRAM_ADMIN_IDS || '';
+export const TELEGRAM_ADMIN_IDS: number[] = adminIdsRaw
+  .split(',')
+  .map((s) => parseInt(s.trim(), 10))
+  .filter((n) => !Number.isNaN(n));

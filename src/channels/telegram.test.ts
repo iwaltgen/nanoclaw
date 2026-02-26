@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 vi.mock('../config.js', () => ({
   ASSISTANT_NAME: 'Andy',
   TRIGGER_PATTERN: /^@Andy\b/i,
+  TELEGRAM_ADMIN_IDS: [99001],
 }));
 
 // Mock logger
@@ -869,7 +870,7 @@ describe('TelegramChannel', () => {
       const handler = currentBot().commandHandlers.get('chatid')!;
       const ctx = {
         chat: { id: 100200300, type: 'group' as const },
-        from: { first_name: 'Alice' },
+        from: { id: 99001, first_name: 'Alice' },
         reply: vi.fn(),
       };
 
@@ -889,7 +890,7 @@ describe('TelegramChannel', () => {
       const handler = currentBot().commandHandlers.get('chatid')!;
       const ctx = {
         chat: { id: 555, type: 'private' as const },
-        from: { first_name: 'Bob' },
+        from: { id: 99001, first_name: 'Bob' },
         reply: vi.fn(),
       };
 
@@ -907,11 +908,49 @@ describe('TelegramChannel', () => {
       await channel.connect();
 
       const handler = currentBot().commandHandlers.get('ping')!;
-      const ctx = { reply: vi.fn() };
+      const ctx = {
+        chat: { id: 100200300 },
+        from: { id: 99001 },
+        reply: vi.fn(),
+      };
 
       await handler(ctx);
 
       expect(ctx.reply).toHaveBeenCalledWith('Andy is online.');
+    });
+
+    it('/chatid ignores unauthorized users in unregistered chat', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const handler = currentBot().commandHandlers.get('chatid')!;
+      const ctx = {
+        chat: { id: 999999, type: 'private' as const },
+        from: { id: 77777, first_name: 'Stranger' },
+        reply: vi.fn(),
+      };
+
+      await handler(ctx);
+
+      expect(ctx.reply).not.toHaveBeenCalled();
+    });
+
+    it('/ping ignores unauthorized users in unregistered chat', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const handler = currentBot().commandHandlers.get('ping')!;
+      const ctx = {
+        chat: { id: 999999 },
+        from: { id: 77777 },
+        reply: vi.fn(),
+      };
+
+      await handler(ctx);
+
+      expect(ctx.reply).not.toHaveBeenCalled();
     });
   });
 
