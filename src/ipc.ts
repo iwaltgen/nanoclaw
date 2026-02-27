@@ -9,8 +9,8 @@ import {
   MAIN_GROUP_FOLDER,
   TIMEZONE,
 } from './config.js';
-import { AvailableGroup } from './container-runner.js';
-import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
+import { AvailableGroup, writeTasksSnapshot } from './container-runner.js';
+import { createTask, deleteTask, findMatchingTask, getAllTasks, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
@@ -152,10 +152,29 @@ export function startIpcWatcher(deps: IpcDeps): void {
   logger.info('IPC watcher started (per-group namespaces)');
 }
 
+function refreshTasksSnapshot(groupFolder: string, isMain: boolean): void {
+  const tasks = getAllTasks();
+  writeTasksSnapshot(
+    groupFolder,
+    isMain,
+    tasks.map((t) => ({
+      id: t.id,
+      taskName: t.task_name ?? null,
+      groupFolder: t.group_folder,
+      prompt: t.prompt,
+      schedule_type: t.schedule_type,
+      schedule_value: t.schedule_value,
+      status: t.status,
+      next_run: t.next_run,
+    })),
+  );
+}
+
 export async function processTaskIpc(
   data: {
     type: string;
     taskId?: string;
+    taskName?: string;
     prompt?: string;
     schedule_type?: string;
     schedule_value?: string;
@@ -246,27 +265,51 @@ export async function processTaskIpc(
           nextRun = scheduled.toISOString();
         }
 
-        const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const contextMode =
           data.context_mode === 'group' || data.context_mode === 'isolated'
             ? data.context_mode
             : 'isolated';
-        createTask({
-          id: taskId,
-          group_folder: targetFolder,
-          chat_jid: targetJid,
-          prompt: data.prompt,
-          schedule_type: scheduleType,
-          schedule_value: data.schedule_value,
-          context_mode: contextMode,
-          next_run: nextRun,
-          status: 'active',
-          created_at: new Date().toISOString(),
-        });
-        logger.info(
-          { taskId, sourceGroup, targetFolder, contextMode },
-          'Task created via IPC',
+
+        // Check for existing task with same name to prevent duplicates
+        const existing = findMatchingTask(
+          targetFolder,
+          targetJid,
+          data.taskName,
         );
+
+        if (existing) {
+          updateTask(existing.id, {
+            prompt: data.prompt,
+            schedule_type: scheduleType,
+            schedule_value: data.schedule_value,
+            next_run: nextRun ?? undefined,
+            status: 'active',
+          });
+          logger.info(
+            { taskId: existing.id, taskName: data.taskName, sourceGroup, targetFolder },
+            'Existing task updated via IPC (duplicate prevented)',
+          );
+        } else {
+          const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          createTask({
+            id: taskId,
+            task_name: data.taskName || null,
+            group_folder: targetFolder,
+            chat_jid: targetJid,
+            prompt: data.prompt,
+            schedule_type: scheduleType,
+            schedule_value: data.schedule_value,
+            context_mode: contextMode,
+            next_run: nextRun,
+            status: 'active',
+            created_at: new Date().toISOString(),
+          });
+          logger.info(
+            { taskId, taskName: data.taskName, sourceGroup, targetFolder, contextMode },
+            'Task created via IPC',
+          );
+        }
+        refreshTasksSnapshot(sourceGroup, isMain);
       }
       break;
 
@@ -275,6 +318,7 @@ export async function processTaskIpc(
         const task = getTaskById(data.taskId);
         if (task && (isMain || task.group_folder === sourceGroup)) {
           updateTask(data.taskId, { status: 'paused' });
+          refreshTasksSnapshot(sourceGroup, isMain);
           logger.info(
             { taskId: data.taskId, sourceGroup },
             'Task paused via IPC',
@@ -293,6 +337,7 @@ export async function processTaskIpc(
         const task = getTaskById(data.taskId);
         if (task && (isMain || task.group_folder === sourceGroup)) {
           updateTask(data.taskId, { status: 'active' });
+          refreshTasksSnapshot(sourceGroup, isMain);
           logger.info(
             { taskId: data.taskId, sourceGroup },
             'Task resumed via IPC',
@@ -311,6 +356,7 @@ export async function processTaskIpc(
         const task = getTaskById(data.taskId);
         if (task && (isMain || task.group_folder === sourceGroup)) {
           deleteTask(data.taskId);
+          refreshTasksSnapshot(sourceGroup, isMain);
           logger.info(
             { taskId: data.taskId, sourceGroup },
             'Task cancelled via IPC',

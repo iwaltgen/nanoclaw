@@ -39,7 +39,7 @@ import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
-import { startSchedulerLoop } from './task-scheduler.js';
+import { startSchedulerLoop, stopSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
@@ -246,6 +246,7 @@ async function runAgent(
     isMain,
     tasks.map((t) => ({
       id: t.id,
+      taskName: t.task_name ?? null,
       groupFolder: t.group_folder,
       prompt: t.prompt,
       schedule_type: t.schedule_type,
@@ -433,6 +434,7 @@ async function main(): Promise<void> {
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
+    stopSchedulerLoop();
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();
     process.exit(0);

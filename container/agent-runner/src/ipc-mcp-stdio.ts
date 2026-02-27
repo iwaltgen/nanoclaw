@@ -86,6 +86,7 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
 \u2022 interval: Milliseconds between runs (e.g., "300000" for 5 minutes, "3600000" for 1 hour)
 \u2022 once: Local time WITHOUT "Z" suffix (e.g., "2026-02-01T15:30:00"). Do NOT use UTC/Z suffix.`,
   {
+    task_name: z.string().describe('A short unique identifier for this task (e.g., "trend-research", "daily-summary", "idea-research"). Tasks with the same name are treated as the same task — scheduling again with an existing name will UPDATE the existing task instead of creating a duplicate.'),
     prompt: z.string().describe('What the agent should do when the task runs. For isolated mode, include all necessary context here.'),
     schedule_type: z.enum(['cron', 'interval', 'once']).describe('cron=recurring at specific times, interval=recurring every N ms, once=run once at specific time'),
     schedule_value: z.string().describe('cron: "*/5 * * * *" | interval: milliseconds like "300000" | once: local timestamp like "2026-02-01T15:30:00" (no Z suffix!)'),
@@ -132,6 +133,7 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
 
     const data = {
       type: 'schedule_task',
+      taskName: args.task_name,
       prompt: args.prompt,
       schedule_type: args.schedule_type,
       schedule_value: args.schedule_value,
@@ -173,8 +175,8 @@ server.tool(
 
       const formatted = tasks
         .map(
-          (t: { id: string; prompt: string; schedule_type: string; schedule_value: string; status: string; next_run: string }) =>
-            `- [${t.id}] ${t.prompt.slice(0, 50)}... (${t.schedule_type}: ${t.schedule_value}) - ${t.status}, next: ${t.next_run || 'N/A'}`,
+          (t: { id: string; taskName: string | null; prompt: string; schedule_type: string; schedule_value: string; status: string; next_run: string }) =>
+            `- [${t.id}]${t.taskName ? ` (${t.taskName})` : ''} ${t.prompt.slice(0, 50)}... (${t.schedule_type}: ${t.schedule_value}) - ${t.status}, next: ${t.next_run || 'N/A'}`,
         )
         .join('\n');
 

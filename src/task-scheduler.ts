@@ -101,6 +101,7 @@ async function runTask(
     isMain,
     tasks.map((t) => ({
       id: t.id,
+      taskName: t.task_name ?? null,
       groupFolder: t.group_folder,
       prompt: t.prompt,
       schedule_type: t.schedule_type,
@@ -213,6 +214,7 @@ async function runTask(
 }
 
 let schedulerRunning = false;
+let schedulerTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function startSchedulerLoop(deps: SchedulerDependencies): void {
   if (schedulerRunning) {
@@ -223,6 +225,12 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
   logger.info('Scheduler loop started');
 
   const loop = async () => {
+    if (!schedulerRunning) {
+      logger.info('Scheduler loop stopped');
+      schedulerTimer = null;
+      return;
+    }
+
     try {
       const dueTasks = getDueTasks();
       if (dueTasks.length > 0) {
@@ -244,13 +252,23 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
       logger.error({ err }, 'Error in scheduler loop');
     }
 
-    setTimeout(loop, SCHEDULER_POLL_INTERVAL);
+    schedulerTimer = setTimeout(loop, SCHEDULER_POLL_INTERVAL);
   };
 
   loop();
 }
 
+export function stopSchedulerLoop(): void {
+  if (!schedulerRunning) return;
+  schedulerRunning = false;
+  if (schedulerTimer) {
+    clearTimeout(schedulerTimer);
+    schedulerTimer = null;
+  }
+  logger.info('Scheduler loop stop requested');
+}
+
 /** @internal - for tests only. */
 export function _resetSchedulerLoopForTests(): void {
-  schedulerRunning = false;
+  stopSchedulerLoop();
 }

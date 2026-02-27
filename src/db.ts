@@ -93,6 +93,15 @@ function createSchema(database: Database.Database): void {
     /* column already exists */
   }
 
+  // Add task_name column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec(
+      `ALTER TABLE scheduled_tasks ADD COLUMN task_name TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
   // Add is_bot_message column if it doesn't exist (migration for existing DBs)
   try {
     database.exec(
@@ -345,11 +354,12 @@ export function createTask(
 ): void {
   db.prepare(
     `
-    INSERT INTO scheduled_tasks (id, group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, next_run, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scheduled_tasks (id, task_name, group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, next_run, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     task.id,
+    task.task_name || null,
     task.group_folder,
     task.chat_jid,
     task.prompt,
@@ -374,6 +384,24 @@ export function getTasksForGroup(groupFolder: string): ScheduledTask[] {
       'SELECT * FROM scheduled_tasks WHERE group_folder = ? ORDER BY created_at DESC',
     )
     .all(groupFolder) as ScheduledTask[];
+}
+
+export function findMatchingTask(
+  groupFolder: string,
+  chatJid: string,
+  taskName?: string,
+): ScheduledTask | undefined {
+  if (!taskName) return undefined;
+  return db
+    .prepare(
+      `SELECT * FROM scheduled_tasks
+       WHERE group_folder = ? AND chat_jid = ? AND task_name = ?
+         AND status IN ('active', 'paused')
+       LIMIT 1`,
+    )
+    .get(groupFolder, chatJid, taskName) as
+    | ScheduledTask
+    | undefined;
 }
 
 export function getAllTasks(): ScheduledTask[] {

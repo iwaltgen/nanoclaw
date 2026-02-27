@@ -626,6 +626,7 @@ export function writeTasksSnapshot(
   isMain: boolean,
   tasks: Array<{
     id: string;
+    taskName: string | null;
     groupFolder: string;
     prompt: string;
     schedule_type: string;
